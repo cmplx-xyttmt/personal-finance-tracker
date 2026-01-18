@@ -21,7 +21,7 @@ export function Dashboard() {
     const [showCloseModal, setShowCloseModal] = useState(false);
 
     const [surplusAction, setSurplusAction] = useState<"rollover" | "savings">("rollover");
-    const [selectedSavingsBudget, setSelectedSavingsBudget] = useState<number | null>(null);
+    const [selectedSavingsBudget, setSelectedSavingsBudget] = useState<string | null>(null);
 
     // New Budget Form State
     const [newCategory, setNewCategory] = useState("");
@@ -41,9 +41,8 @@ export function Dashboard() {
     );
 
     const wealthData = useLiveQuery(async () => {
-        // ... same as before
         const savingBudgets = await db.budgets
-            .filter(b => ["Savings", "Sinking Fund"].includes(b.tag))
+            .filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag))
             .toArray();
 
         if (!savingBudgets || savingBudgets.length === 0) return { total: 0, breakdown: [] };
@@ -53,12 +52,7 @@ export function Dashboard() {
 
         const breakdownMap = new Map<string, number>();
 
-        // Initialize all relevant budgets with 0
         savingBudgets.forEach(b => {
-            // Only include if not already added (though db IDs should be unique, categories might repeat across months? 
-            // Wait, wealth distribution is aggregate across ALL TIME?
-            // "This balance is derived by summing all transactions... across all months."
-            // If we list "Medical" from Month 1 and Month 2, do we want one entry? Yes.
             if (!breakdownMap.has(b.category)) {
                 breakdownMap.set(b.category, 0);
             }
@@ -79,44 +73,79 @@ export function Dashboard() {
     });
 
     // --- Auto Population & Sync ---
-    // ... (Same useEffect and syncTemplate logic) ...
     useEffect(() => {
         const populate = async () => {
-            const count = await db.budgets.where("monthId").equals(currentMonth).count();
-            if (count === 0) {
-                await db.budgets.bulkAdd(BUDGET_TEMPLATE.map(t => ({
-                    monthId: currentMonth,
-                    category: t.category,
-                    plannedAmount: t.plannedAmount,
-                    tag: t.tag
-                })));
+            try {
+                // Fetch actual existing budgets for this month
+                const existingBudgets = await db.budgets.where("monthId").equals(currentMonth).toArray();
+                const existingCats = new Set(existingBudgets.map(b => b.category));
+
+                const missing = BUDGET_TEMPLATE.filter(t => !existingCats.has(t.category));
+
+                if (missing.length > 0) {
+                    await db.budgets.bulkAdd(missing.map(t => ({
+                        id: crypto.randomUUID(),
+                        monthId: currentMonth,
+                        category: t.category,
+                        plannedAmount: t.plannedAmount,
+                        tag: t.tag,
+                        updatedAt: Date.now(),
+                        synced: 0
+                    })));
+                }
+
+                // Also ensure a month record exists
+                const month = await db.months.get(currentMonth);
+                if (!month) {
+                    await db.months.put({
+                        id: currentMonth,
+                        expectedIncome: 0,
+                        savingsGoal: 0,
+                        updatedAt: Date.now(),
+                        synced: 0
+                    });
+                }
+            } catch (error) {
+                console.error("Auto-population failed:", error);
             }
         };
         populate();
     }, [currentMonth]);
 
     const syncTemplate = async () => {
-        const existingCats = budgets?.map(b => b.category) || [];
-        const missing = BUDGET_TEMPLATE.filter(t => !existingCats.includes(t.category));
+        try {
+            const existingBudgets = await db.budgets.where("monthId").equals(currentMonth).toArray();
+            const existingCats = new Set(existingBudgets.map(b => b.category));
 
-        if (missing.length > 0) {
-            await db.budgets.bulkAdd(missing.map(t => ({
-                monthId: currentMonth,
-                category: t.category,
-                plannedAmount: t.plannedAmount,
-                tag: t.tag
-            })));
-        }
+            const missing = BUDGET_TEMPLATE.filter(t => !existingCats.has(t.category));
 
-        if (budgets) {
+            if (missing.length > 0) {
+                await db.budgets.bulkAdd(missing.map(t => ({
+                    id: crypto.randomUUID(),
+                    monthId: currentMonth,
+                    category: t.category,
+                    plannedAmount: t.plannedAmount,
+                    tag: t.tag,
+                    updatedAt: Date.now(),
+                    synced: 0
+                })));
+            }
+
+            // Also update tags for existing ones if they changed in template
             const updates = [];
-            for (const budget of budgets) {
+            for (const budget of existingBudgets) {
                 const template = BUDGET_TEMPLATE.find(t => t.category === budget.category);
                 if (template && template.tag !== budget.tag) {
-                    updates.push(db.budgets.update(budget.id, { tag: template.tag }));
+                    updates.push(db.budgets.update(budget.id, {
+                        tag: template.tag,
+                        updatedAt: Date.now(),
+                        synced: 0
+                    }));
                 }
             }
             if (updates.length > 0) await Promise.all(updates);
+        } catch (error) {
+            console.error("Sync template failed:", error);
         }
     };
 
@@ -131,7 +160,7 @@ export function Dashboard() {
 
     const totalPlanned = budgetSummaries.reduce((sum, b) => sum + b.plannedAmount, 0);
     const totalActual = budgetSummaries.reduce((sum, b) => sum + b.actual, 0);
-    const savings = expectedIncome - totalActual; // This is the Net Surplus/Deficit
+    const savings = expectedIncome - totalActual;
     const bankBalance = expectedIncome - totalActual;
 
     // --- Close Month Logic ---
@@ -142,74 +171,87 @@ export function Dashboard() {
     const processCloseMonth = async () => {
         const nextMonth = format(addMonths(new Date(currentMonth + "-01"), 1), "yyyy-MM");
 
-        // 1. Ensure Next Month budgets exist
         const nextBudgetsCount = await db.budgets.where("monthId").equals(nextMonth).count();
         if (nextBudgetsCount === 0) {
             await db.budgets.bulkAdd(BUDGET_TEMPLATE.map(t => ({
+                id: crypto.randomUUID(),
                 monthId: nextMonth,
                 category: t.category,
                 plannedAmount: t.plannedAmount,
-                tag: t.tag
+                tag: t.tag,
+                updatedAt: Date.now(),
+                synced: 0
             })));
         }
 
-        // 2. Handle Surplus logic
         if (savings > 0) {
             if (surplusAction === "savings" && selectedSavingsBudget) {
-                // Create transaction in CURRENT month to zero it out
                 await db.transactions.add({
+                    id: crypto.randomUUID(),
                     budgetId: selectedSavingsBudget,
                     description: "Month-End Surplus Transfer",
                     amount: savings,
-                    date: new Date().toISOString()
+                    date: new Date().toISOString(),
+                    updatedAt: Date.now(),
+                    synced: 0
                 });
             } else {
-                // Rollover: Create NEGATIVE transaction in NEXT month
-                // Need a "Rollover Adjustment" budget in next month
-                const rolloverBudgetID = await db.budgets.add({
+                const rolloverBudgetID = crypto.randomUUID();
+                await db.budgets.add({
+                    id: rolloverBudgetID,
                     monthId: nextMonth,
                     category: "Rollover Adjustment",
                     plannedAmount: 0,
-                    tag: "Fixed"
+                    tag: "Fixed",
+                    updatedAt: Date.now(),
+                    synced: 0
                 });
 
                 await db.transactions.add({
-                    budgetId: rolloverBudgetID as number,
+                    id: crypto.randomUUID(),
+                    budgetId: rolloverBudgetID,
                     description: "Rollover from previous month",
-                    amount: -savings, // Negative amount increases available funds (less spent)
-                    date: new Date().toISOString()
+                    amount: -savings,
+                    date: new Date().toISOString(),
+                    updatedAt: Date.now(),
+                    synced: 0
                 });
             }
         }
-        // 3. Handle Deficit logic
         else if (savings < 0) {
-            // Carry Debt: Positive transaction in NEXT month
-            const rolloverBudgetID = await db.budgets.add({
+            const rolloverBudgetID = crypto.randomUUID();
+            await db.budgets.add({
+                id: rolloverBudgetID,
                 monthId: nextMonth,
                 category: "Rollover Adjustment",
                 plannedAmount: 0,
-                tag: "Fixed"
+                tag: "Fixed",
+                updatedAt: Date.now(),
+                synced: 0
             });
 
             await db.transactions.add({
-                budgetId: rolloverBudgetID as number,
+                id: crypto.randomUUID(),
+                budgetId: rolloverBudgetID,
                 description: "Debt from previous month",
-                amount: Math.abs(savings), // Positive amount consumes funds
-                date: new Date().toISOString()
+                amount: Math.abs(savings),
+                date: new Date().toISOString(),
+                updatedAt: Date.now(),
+                synced: 0
             });
         }
 
-        // 4. Initialise Next Month Income (Optional: Copy current)
         const nextMonthData = await db.months.get(nextMonth);
         if (!nextMonthData) {
             await db.months.put({
                 id: nextMonth,
-                expectedIncome: expectedIncome, // Carrying over income setting
-                savingsGoal: 0
+                expectedIncome: expectedIncome,
+                savingsGoal: 0,
+                updatedAt: Date.now(),
+                synced: 0
             });
         }
 
-        // 5. Navigate
         setShowCloseModal(false);
         setCurrentMonth(nextMonth);
     };
@@ -220,24 +262,39 @@ export function Dashboard() {
             id: currentMonth,
             expectedIncome: val,
             savingsGoal: monthData?.savingsGoal || 0,
+            updatedAt: Date.now(),
+            synced: 0
         });
     };
 
     const addBudget = async () => {
         if (!newCategory) return;
         await db.budgets.add({
+            id: crypto.randomUUID(),
             monthId: currentMonth,
             category: newCategory,
             plannedAmount: newPlanned,
-            tag: newTag
+            tag: newTag,
+            updatedAt: Date.now(),
+            synced: 0
         });
         setNewCategory("");
         setNewPlanned(0);
     };
 
-    const deleteBudget = async (id: number) => {
-        await db.transactions.where("budgetId").equals(id).delete();
-        await db.budgets.delete(id);
+    const deleteBudget = async (id: string) => {
+        await db.transaction('rw', [db.transactions, db.budgets, db.deleted_records], async () => {
+            const trans = await db.transactions.where("budgetId").equals(id).toArray();
+            const transIds = trans.map(t => t.id);
+
+            if (transIds.length > 0) {
+                await db.deleted_records.bulkAdd(transIds.map(tid => ({ itemId: tid, table: 'transactions', updatedAt: Date.now(), synced: 0 })));
+                await db.transactions.bulkDelete(transIds);
+            }
+
+            await db.deleted_records.add({ itemId: id, table: 'budgets', updatedAt: Date.now(), synced: 0 });
+            await db.budgets.delete(id);
+        });
     };
 
     // Helpers for formatting
@@ -256,7 +313,6 @@ export function Dashboard() {
 
             {/* Metrics Grid */}
             <div className="grid gap-4 md:grid-cols-4">
-                {/* ... Identical to previous ... */}
                 <Card>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium">Expected Income</CardTitle>
@@ -312,7 +368,6 @@ export function Dashboard() {
 
             {/* Wealth Distribution */}
             <Card className="bg-emerald-50/50 border-emerald-100 dark:bg-emerald-950/10 dark:border-emerald-900">
-                {/* ... Identical ... */}
                 <CardHeader className="cursor-pointer select-none py-4" onClick={() => setIsWealthExpanded(!isWealthExpanded)}>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -346,7 +401,6 @@ export function Dashboard() {
 
             {/* Main Budget Section */}
             <Card>
-                {/* ... Identical ... */}
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                         <CardTitle>Budget Categories</CardTitle>
@@ -427,7 +481,7 @@ export function Dashboard() {
                                     {surplusAction === "savings" && (
                                         <select
                                             className="w-full p-2 border rounded mt-2 text-sm"
-                                            onChange={(e) => setSelectedSavingsBudget(Number(e.target.value))}
+                                            onChange={(e) => setSelectedSavingsBudget(e.target.value)}
                                             defaultValue=""
                                         >
                                             <option value="" disabled>Select Fund...</option>
@@ -460,9 +514,6 @@ export function Dashboard() {
     );
 }
 
-// ... BudgetGroup component stays the same ...
-
-
 function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [newTransDesc, setNewTransDesc] = useState("");
@@ -477,22 +528,27 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
     const addTransaction = async () => {
         if (!newTransDesc && newTransAmount === 0) return;
         await db.transactions.add({
+            id: crypto.randomUUID(),
             budgetId: budget.id,
             description: newTransDesc || "Expense",
             amount: newTransAmount,
-            date: new Date().toISOString()
+            date: new Date().toISOString(),
+            updatedAt: Date.now(),
+            synced: 0
         });
         setNewTransDesc("");
         setNewTransAmount(0);
     };
 
-    const deleteTransaction = async (id: number) => {
-        await db.transactions.delete(id);
+    const deleteTransaction = async (id: string) => {
+        await db.transaction('rw', [db.transactions, db.deleted_records], async () => {
+            await db.deleted_records.add({ itemId: id, table: 'transactions', updatedAt: Date.now(), synced: 0 });
+            await db.transactions.delete(id);
+        });
     };
 
     return (
         <div className={`border rounded-lg overflow-hidden ${isExpanded ? 'ring-1 ring-primary' : ''}`}>
-            {/* Same JSX as before */}
             <div className="flex items-center p-3 bg-card/40 hover:bg-card/60 transition-colors">
                 <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="mr-2">
                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -584,4 +640,3 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
         </div>
     );
 }
-

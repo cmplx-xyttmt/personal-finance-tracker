@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { Dashboard } from "@/pages/Dashboard";
+import { AuthPage } from "@/pages/Auth";
 
 function App() {
   return (
@@ -8,6 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="auth" element={<AuthPage />} />
           <Route path="investments" element={<div>Investments (Coming Soon)</div>} />
           <Route path="simulator" element={<div>Simulator (Coming Soon)</div>} />
           <Route path="*" element={<Navigate to="/" replace />} />

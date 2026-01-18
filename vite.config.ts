@@ -4,9 +4,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const base = "/personal-finance-tracker/";
+
 // https://vite.dev/config/
 export default defineConfig({
-  base: "/personal-finance-tracker/",
+  base: base,
   plugins: [
     react(),
     tailwindcss(),
@@ -18,7 +20,8 @@ export default defineConfig({
         short_name: 'Budget',
         description: 'A local-first personal finance tracker',
         theme_color: '#ffffff',
-        start_url: "/",
+        start_url: base,
+        scope: base,
         display: "standalone",
         background_color: "#ffffff",
         icons: [
