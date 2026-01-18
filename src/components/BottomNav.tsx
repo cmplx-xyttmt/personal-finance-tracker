@@ -2,7 +2,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Wallet, LineChart, LogIn, RefreshCw, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSync } from "@/hooks/useSync";
-import { supabase } from "@/lib/supabase";
 
 const navItems = [
     { name: "Planner", href: "/", icon: LayoutDashboard },
@@ -16,11 +15,6 @@ export function BottomNav() {
     const { isSyncing, lastSyncTime, user, syncNow } = useSync();
 
     const handleLoginClick = () => {
-        navigate("/auth");
-    };
-
-    const handleLogout = async () => {
-        await supabase.auth.signOut();
         navigate("/auth");
     };
 

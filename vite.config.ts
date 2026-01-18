@@ -17,7 +17,7 @@ export default defineConfig({
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
         name: 'Personal Finance Tracker',
-        short_name: 'Budget',
+        short_name: 'Finance Tracker',
         description: 'A local-first personal finance tracker',
         theme_color: '#ffffff',
         start_url: base,
