@@ -1,73 +1,64 @@
-# React + TypeScript + Vite
+# Personal Finance Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A privacy-focused, local-first personal finance application built with React and Dexie.js.
 
-Currently, two official plugins are available:
+![PWA Capable](https://img.shields.io/badge/PWA-Capable-success)
+![Local First](https://img.shields.io/badge/Data-Local_Only-blue)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+### 📅 Monthly Budgeting
+- **Zero-Based Budgeting**: Plan every shilling. Track Expected Income vs. Planned Expenses.
+- **Real-Time Tracking**: Log expenses against categories and see your remaining budget instantly.
+- **Templates**: Auto-populates your monthly budget based on a customizable template.
+- **Sync**: Easily update existing months with new categories or tag changes.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 💰 Wealth Tracking
+- **Sinking Funds**: Track accumulated balances for specific goals (e.g., "Medical", "Travel", "Emergency Buffer") across months.
+- **Bank Balance**: Always know your "Operating Cash" (Income - Actual Spends).
 
-## Expanding the ESLint configuration
+### 🔄 Month-End Workflows
+- **Close Month**: Formalize your financial period.
+- **Surplus Handling**: Choose to carry over extra cash to the next month or transfer it to a savings goal.
+- **Deficit Handling**: Automatically carries over debt to deduuct from next month's available funds.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 📱 Progressive Web App (PWA)
+- **Installable**: Add to your home screen on iOS/Android or Desktop.
+- **Offline First**: Works completely offline. Data is stored in your browser's IndexedDB.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Tech Stack
+- **Framework**: React + Vite
+- **Language**: TypeScript
+- **Database**: Dexie.js (Wrapper for IndexedDB)
+- **Styling**: Tailwind CSS + Shadcn/UI
+- **Deployment**: GitHub Pages
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Getting Started
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/cmplx-xyttmt/personal-finance-tracker.git
+    cd personal-finance-tracker
+    ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+3.  **Run Locally**
+    ```bash
+    npm run dev
+    ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+4.  **Build**
+    ```bash
+    npm run build
+    ```
+
+## Configuration
+
+- **Budget Template**: Modify `src/lib/constants.ts` to adjust your default categories and tags.
+
+## License
+MIT
