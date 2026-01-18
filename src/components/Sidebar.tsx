@@ -61,7 +61,7 @@ export function Sidebar() {
                                     {isSyncing ? "Syncing..." : "Synced"}
                                 </span>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={syncNow} disabled={isSyncing} title="Sync Now">
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => syncNow()} disabled={isSyncing} title="Sync Now">
                                 <RefreshCw className="h-3 w-3" />
                             </Button>
                         </div>

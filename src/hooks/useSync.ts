@@ -6,26 +6,66 @@ export function useSync() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [user, setUser] = useState<any>(null);
+    const [hasCompletedInitialSync, setHasCompletedInitialSync] = useState(false);
+
+    const syncNow = async (skipUserCheck = false) => {
+        // Allow manual sync even if isSyncing is true? No, debounce.
+        if (!skipUserCheck && (!user || isSyncing)) return;
+        setIsSyncing(true);
+        try {
+            await syncService.sync();
+            setLastSyncTime(new Date());
+        } catch (e) {
+            console.error("Sync error:", e);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     useEffect(() => {
-        // Check session
-        supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null));
+        let mounted = true;
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                // Auto sync on login
-                syncNow();
+        // Check session
+        supabase.auth.getSession().then(async ({ data }) => {
+            const sessionUser = data.session?.user ?? null;
+            if (!mounted) return;
+            
+            setUser(sessionUser);
+            if (sessionUser) {
+                // Auto sync on initial load if already logged in
+                await syncNow(true);
+                if (mounted) setHasCompletedInitialSync(true);
+            } else {
+                // No user, mark as completed so UI can render
+                setHasCompletedInitialSync(true);
             }
         });
 
-        return () => subscription.unsubscribe();
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            if (!mounted) return;
+            
+            const sessionUser = session?.user ?? null;
+            setUser(sessionUser);
+            if (sessionUser) {
+                // Auto sync on login
+                await syncNow(true);
+                if (mounted) setHasCompletedInitialSync(true);
+            } else {
+                // Logged out, mark as completed
+                setHasCompletedInitialSync(true);
+            }
+        });
+
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
     useEffect(() => {
         // Auto sync interval if logged in
         if (!user) return;
-        const interval = setInterval(syncNow, 5 * 60 * 1000); // 5 min
+        const interval = setInterval(() => syncNow(), 5 * 60 * 1000); // 5 min
         return () => clearInterval(interval);
     }, [user]);
 
@@ -38,19 +78,5 @@ export function useSync() {
         return () => window.removeEventListener('online', handleOnline);
     }, [user]);
 
-    const syncNow = async () => {
-        // Allow manual sync even if isSyncing is true? No, debounce.
-        if (!user || isSyncing) return;
-        setIsSyncing(true);
-        try {
-            await syncService.sync();
-            setLastSyncTime(new Date());
-        } catch (e) {
-            console.error("Sync error:", e);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    return { isSyncing, lastSyncTime, user, syncNow };
+    return { isSyncing, lastSyncTime, user, syncNow, hasCompletedInitialSync };
 }

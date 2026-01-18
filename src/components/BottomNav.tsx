@@ -37,7 +37,7 @@ export function BottomNav() {
             ))}
             {user ? (
                 <button
-                    onClick={syncNow}
+                    onClick={() => syncNow()}
                     disabled={isSyncing}
                     className="flex flex-1 flex-col items-center justify-center space-y-1 transition-colors hover:text-primary text-muted-foreground disabled:opacity-50"
                     title={lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleString()}` : "Sync"}

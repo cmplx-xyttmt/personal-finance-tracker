@@ -11,9 +11,11 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { MoneyInput } from "@/components/ui/money-input";
 import { BUDGET_TEMPLATE, TAG_COLORS } from "@/lib/constants";
+import { useSync } from "@/hooks/useSync";
 
 export function Dashboard() {
     const [currentMonth, setCurrentMonth] = useState(format(new Date(), "yyyy-MM"));
+    const { user, isSyncing, hasCompletedInitialSync } = useSync();
 
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
@@ -76,11 +78,36 @@ export function Dashboard() {
     // --- Auto Population & Sync ---
     useEffect(() => {
         const populate = async () => {
+            // If user is logged in, wait for sync to complete before populating
+            // This prevents creating default data that overwrites synced data
+            if (user && isSyncing) {
+                return; // Wait for sync to finish
+            }
+
             try {
                 // Fetch actual existing budgets for this month
                 const existingBudgets = await db.budgets.where("monthId").equals(currentMonth).toArray();
-                const existingCats = new Set(existingBudgets.map(b => b.category));
+                
+                // Only auto-populate if there are NO budgets at all for this month
+                // If user is logged in and has synced data, don't create defaults
+                if (user && existingBudgets.length > 0) {
+                    // User is logged in and has data - don't auto-populate
+                    // Just ensure month record exists
+                    const month = await db.months.get(currentMonth);
+                    if (!month) {
+                        await db.months.put({
+                            id: currentMonth,
+                            expectedIncome: 0,
+                            savingsGoal: 0,
+                            updatedAt: Date.now(),
+                            synced: 0
+                        });
+                    }
+                    return;
+                }
 
+                // Only populate missing categories if not logged in OR if truly no data exists
+                const existingCats = new Set(existingBudgets.map(b => b.category));
                 const missing = BUDGET_TEMPLATE.filter(t => !existingCats.has(t.category));
 
                 if (missing.length > 0) {
@@ -91,7 +118,7 @@ export function Dashboard() {
                         plannedAmount: t.plannedAmount,
                         tag: t.tag,
                         updatedAt: Date.now(),
-                        synced: 0
+                        synced: user ? 0 : 1 // Mark as unsynced if logged in, synced if not
                     })));
                 }
 
@@ -103,15 +130,18 @@ export function Dashboard() {
                         expectedIncome: 0,
                         savingsGoal: 0,
                         updatedAt: Date.now(),
-                        synced: 0
+                        synced: user ? 0 : 1
                     });
                 }
             } catch (error) {
                 console.error("Auto-population failed:", error);
             }
         };
-        populate();
-    }, [currentMonth]);
+        
+        // Small delay to let sync complete if user just logged in
+        const timeoutId = setTimeout(populate, user ? 1000 : 0);
+        return () => clearTimeout(timeoutId);
+    }, [currentMonth, user, isSyncing]);
 
     const syncTemplate = async () => {
         try {
@@ -300,6 +330,18 @@ export function Dashboard() {
 
     // Helpers for formatting
     const savingsOptions = budgetSummaries?.filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag)) || [];
+
+    // Show loading state while waiting for initial sync when logged in
+    if (user && !hasCompletedInitialSync) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-center space-y-4">
+                    <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Syncing data...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6 relative">
