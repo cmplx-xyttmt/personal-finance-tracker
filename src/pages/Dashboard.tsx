@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { format, addMonths } from "date-fns";
-import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, RefreshCw, AlertCircle, ArrowRight } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, AlertCircle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { db } from "@/db/db";
 import { MonthSelector } from "@/components/MonthSelector";
@@ -11,11 +11,9 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { MoneyInput } from "@/components/ui/money-input";
 import { BUDGET_TEMPLATE, TAG_COLORS } from "@/lib/constants";
-import { useSync } from "@/hooks/useSync";
 
 export function Dashboard() {
     const [currentMonth, setCurrentMonth] = useState(format(new Date(), "yyyy-MM"));
-    const { user, hasCompletedInitialSync, syncImmediate } = useSync();
 
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
@@ -85,8 +83,7 @@ export function Dashboard() {
                         id: currentMonth,
                         expectedIncome: 0,
                         savingsGoal: 0,
-                        updatedAt: Date.now(),
-                        synced: user ? 0 : 1
+                        updatedAt: Date.now()
                     });
                 }
             } catch (error) {
@@ -94,7 +91,7 @@ export function Dashboard() {
             }
         };
         ensureMonth();
-    }, [currentMonth, user]);
+    }, [currentMonth]);
 
     const fillFromTemplate = async () => {
         try {
@@ -120,8 +117,7 @@ export function Dashboard() {
                                 category: item.category,
                                 plannedAmount: item.plannedAmount,
                                 tag: item.tag,
-                                updatedAt: Date.now(),
-                                synced: user ? 0 : 1
+                                updatedAt: Date.now()
                             });
                         } catch (e: any) {
                             // Ignore if duplicate (might have been added by another process)
@@ -165,8 +161,7 @@ export function Dashboard() {
                 category: t.category,
                 plannedAmount: t.plannedAmount,
                 tag: t.tag,
-                updatedAt: Date.now(),
-                synced: 0
+                updatedAt: Date.now()
             })));
         }
 
@@ -178,8 +173,7 @@ export function Dashboard() {
                     description: "Month-End Surplus Transfer",
                     amount: savings,
                     date: new Date().toISOString(),
-                    updatedAt: Date.now(),
-                    synced: 0
+                    updatedAt: Date.now()
                 });
             } else {
                 const rolloverBudgetID = crypto.randomUUID();
@@ -190,7 +184,6 @@ export function Dashboard() {
                     plannedAmount: 0,
                     tag: "Fixed",
                     updatedAt: Date.now(),
-                    synced: 0
                 });
 
                 await db.transactions.add({
@@ -199,8 +192,7 @@ export function Dashboard() {
                     description: "Rollover from previous month",
                     amount: -savings,
                     date: new Date().toISOString(),
-                    updatedAt: Date.now(),
-                    synced: 0
+                    updatedAt: Date.now()
                 });
             }
         }
@@ -212,8 +204,7 @@ export function Dashboard() {
                 category: "Rollover Adjustment",
                 plannedAmount: 0,
                 tag: "Fixed",
-                updatedAt: Date.now(),
-                synced: 0
+                updatedAt: Date.now()
             });
 
             await db.transactions.add({
@@ -222,8 +213,7 @@ export function Dashboard() {
                 description: "Debt from previous month",
                 amount: Math.abs(savings),
                 date: new Date().toISOString(),
-                updatedAt: Date.now(),
-                synced: 0
+                updatedAt: Date.now()
             });
         }
 
@@ -233,8 +223,7 @@ export function Dashboard() {
                 id: nextMonth,
                 expectedIncome: expectedIncome,
                 savingsGoal: 0,
-                updatedAt: Date.now(),
-                synced: 0
+                updatedAt: Date.now()
             });
         }
 
@@ -248,13 +237,8 @@ export function Dashboard() {
             id: currentMonth,
             expectedIncome: val,
             savingsGoal: monthData?.savingsGoal || 0,
-            updatedAt: Date.now(),
-            synced: 0
+            updatedAt: Date.now()
         });
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
     };
 
     const addBudget = async () => {
@@ -265,62 +249,28 @@ export function Dashboard() {
             category: newCategory,
             plannedAmount: newPlanned,
             tag: newTag,
-            updatedAt: Date.now(),
-            synced: 0
+            updatedAt: Date.now()
         });
         setNewCategory("");
         setNewPlanned(0);
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
     };
 
     const deleteBudget = async (id: string) => {
-        await db.transaction('rw', [db.transactions, db.budgets, db.deleted_records], async () => {
+        await db.transaction('rw', [db.transactions, db.budgets], async () => {
             const trans = await db.transactions.where("budgetId").equals(id).toArray();
             const transIds = trans.map(t => t.id);
 
             if (transIds.length > 0) {
-                await db.deleted_records.bulkAdd(transIds.map(tid => ({ itemId: tid, table: 'transactions', updatedAt: Date.now(), synced: 0 })));
                 await db.transactions.bulkDelete(transIds);
             }
 
-            await db.deleted_records.add({ itemId: id, table: 'budgets', updatedAt: Date.now(), synced: 0 });
             await db.budgets.delete(id);
         });
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
     };
 
     // Helpers for formatting
     const savingsOptions = budgetSummaries?.filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag)).sort((a, b) => a.category.localeCompare(b.category)) || [];
 
-    // Show loading state while waiting for initial sync when logged in
-    if (user && !hasCompletedInitialSync) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <div className="text-center space-y-4">
-                    <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Syncing data...</p>
-                    <p className="text-xs text-muted-foreground">This may take a few seconds</p>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                            // Force reload to show UI (fallback if sync hangs)
-                            window.location.reload();
-                        }}
-                        className="mt-2"
-                    >
-                        Skip (use local data)
-                    </Button>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="space-y-6 relative">
@@ -543,18 +493,13 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
     const [showMobileLog, setShowMobileLog] = useState(false);
     const [newTransDesc, setNewTransDesc] = useState("");
     const [newTransAmount, setNewTransAmount] = useState(0);
-    const { user, syncImmediate } = useSync();
 
     const tagColor = TAG_COLORS[budget.tag] || TAG_COLORS["default"];
     const percent = Math.min(Math.round((budget.actual / budget.plannedAmount) * 100) || 0, 100);
     const remaining = budget.plannedAmount - budget.actual;
 
     const updateBudget = async (val: number) => {
-        await db.budgets.update(budget.id, { plannedAmount: val, updatedAt: Date.now(), synced: 0 });
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
+        await db.budgets.update(budget.id, { plannedAmount: val, updatedAt: Date.now() });
     };
 
     const addTransaction = async () => {
@@ -565,27 +510,15 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
             description: newTransDesc || "Expense",
             amount: newTransAmount,
             date: new Date().toISOString(),
-            updatedAt: Date.now(),
-            synced: 0
+            updatedAt: Date.now()
         });
         setNewTransDesc("");
         setNewTransAmount(0);
         setShowMobileLog(false);
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
     };
 
     const deleteTransaction = async (id: string) => {
-        await db.transaction('rw', [db.transactions, db.deleted_records], async () => {
-            await db.deleted_records.add({ itemId: id, table: 'transactions', updatedAt: Date.now(), synced: 0 });
-            await db.transactions.delete(id);
-        });
-        // Immediate sync if online and logged in
-        if (user && navigator.onLine) {
-            syncImmediate();
-        }
+        await db.transactions.delete(id);
     };
 
     return (

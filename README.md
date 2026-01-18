@@ -10,8 +10,8 @@ A privacy-focused, local-first personal finance application built with React and
 ### 📅 Monthly Budgeting
 - **Zero-Based Budgeting**: Plan every shilling. Track Expected Income vs. Planned Expenses.
 - **Real-Time Tracking**: Log expenses against categories and see your remaining budget instantly.
-- **Templates**: Auto-populates your monthly budget based on a customizable template.
-- **Sync**: Easily update existing months with new categories or tag changes.
+- **Templates**: Fill your monthly budget from a customizable template with one click.
+- **Category Management**: Easily add, edit, or remove budget categories as needed.
 
 ### 💰 Wealth Tracking
 - **Sinking Funds**: Track accumulated balances for specific goals (e.g., "Medical", "Travel", "Emergency Buffer") across months.
@@ -22,9 +22,13 @@ A privacy-focused, local-first personal finance application built with React and
 - **Surplus Handling**: Choose to carry over extra cash to the next month or transfer it to a savings goal.
 - **Deficit Handling**: Automatically carries over debt to deduuct from next month's available funds.
 
+### 💾 Data Management
+- **Backup & Restore**: Export your data as a JSON file for backup or transfer between devices.
+- **Local Storage**: All data is stored locally in your browser's IndexedDB - your data never leaves your device.
+
 ### 📱 Progressive Web App (PWA)
 - **Installable**: Add to your home screen on iOS/Android or Desktop.
-- **Offline First**: Works completely offline. Data is stored in your browser's IndexedDB.
+- **Offline First**: Works completely offline. No internet connection required.
 
 ## 🚀 Roadmap (Coming Soon)
 ### Investment & Coupon Tracker

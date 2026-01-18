@@ -5,27 +5,24 @@ export interface Month {
     expectedIncome: number;
     savingsGoal: number;
     updatedAt?: number;
-    synced?: number; // 0 or 1
 }
 
 export interface Budget {
-    id: string; // UUID (Changed from number)
+    id: string; // UUID
     monthId: string; // YYYY-MM
     category: string;
     plannedAmount: number;
     tag: string;
     updatedAt?: number;
-    synced?: number;
 }
 
 export interface Transaction {
-    id: string; // UUID (Changed from number)
-    budgetId: string; // UUID (Changed from number)
+    id: string; // UUID
+    budgetId: string; // UUID
     amount: number;
     description: string;
     date: string; // ISO Date
     updatedAt?: number;
-    synced?: number;
 }
 
 export interface Bond {
@@ -35,15 +32,6 @@ export interface Bond {
     purchaseDate: string;
     durationYears: number;
     updatedAt?: number;
-    synced?: number;
-}
-
-export interface DeletedRecord {
-    id?: number; // Auto-increment PK for the log
-    itemId: string; // UUID of the deleted item
-    table: string; // 'months', 'budgets', 'transactions', 'bonds'
-    updatedAt: number;
-    synced?: number;
 }
 
 const db = new Dexie('FinanceDB') as Dexie & {
@@ -51,7 +39,6 @@ const db = new Dexie('FinanceDB') as Dexie & {
     budgets: EntityTable<Budget, 'id'>;
     transactions: EntityTable<Transaction, 'id'>;
     bonds: EntityTable<Bond, 'id'>;
-    deleted_records: EntityTable<DeletedRecord, 'id'>;
     expenses: EntityTable<any, 'id'>; // Keep for migration/deletion
 };
 
@@ -138,28 +125,38 @@ db.version(4).stores({
     await trans.table('bonds').bulkAdd(newBonds);
 });
 
-// Version 5: Add deleted_records table for sync
-db.version(5).stores({
-    deleted_records: '++id, table, synced' // Compund index possible? Just simple index on synced.
-    // 'id' here is just an auto-increment or UUID for the LOG record itself.
-    // The DELETED item's ID is stored in 'id' field? No, 'id' is PK of deleted_records.
-    // Wait, the interface says `id: string`. If I use `++id`, it's number.
-    // I should use `++pk` or something.
-    // Let's change Interface.
-    // Actually, I can just use UUID for the log record too.
+// Version 6: Remove synced fields and deleted_records table (simplified, no sync)
+db.version(6).stores({
+    months: 'id',
+    budgets: 'id, monthId, category, tag',
+    transactions: 'id, budgetId',
+    bonds: 'id, purchaseDate',
+    deleted_records: null // Remove deleted_records table
+}).upgrade(async (trans) => {
+    // Remove synced fields from all tables
+    await trans.table('months').toCollection().modify(m => {
+        delete (m as any).synced;
+    });
+    await trans.table('budgets').toCollection().modify(b => {
+        delete (b as any).synced;
+    });
+    await trans.table('transactions').toCollection().modify(t => {
+        delete (t as any).synced;
+    });
+    await trans.table('bonds').toCollection().modify(b => {
+        delete (b as any).synced;
+    });
 });
 
 /**
  * Clear all data from the database
- * Useful when logging out or switching users to prevent data conflicts
  */
 export async function clearDatabase() {
     await Promise.all([
         db.months.clear(),
         db.budgets.clear(),
         db.transactions.clear(),
-        db.bonds.clear(),
-        db.deleted_records.clear()
+        db.bonds.clear()
     ]);
 }
 
