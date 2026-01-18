@@ -43,7 +43,7 @@ export function Dashboard() {
     const wealthData = useLiveQuery(async () => {
         // ... same as before
         const savingBudgets = await db.budgets
-            .filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag))
+            .filter(b => ["Savings", "Sinking Fund"].includes(b.tag))
             .toArray();
 
         if (!savingBudgets || savingBudgets.length === 0) return { total: 0, breakdown: [] };
@@ -52,6 +52,18 @@ export function Dashboard() {
         const savingTrans = await db.transactions.where("budgetId").anyOf(budgetIds).toArray();
 
         const breakdownMap = new Map<string, number>();
+
+        // Initialize all relevant budgets with 0
+        savingBudgets.forEach(b => {
+            // Only include if not already added (though db IDs should be unique, categories might repeat across months? 
+            // Wait, wealth distribution is aggregate across ALL TIME?
+            // "This balance is derived by summing all transactions... across all months."
+            // If we list "Medical" from Month 1 and Month 2, do we want one entry? Yes.
+            if (!breakdownMap.has(b.category)) {
+                breakdownMap.set(b.category, 0);
+            }
+        });
+
         savingTrans.forEach(t => {
             const parent = savingBudgets.find(b => b.id === t.budgetId);
             if (parent) {

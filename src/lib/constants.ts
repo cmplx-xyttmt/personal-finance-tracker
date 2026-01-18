@@ -5,12 +5,13 @@ export const BUDGET_TEMPLATE = [
     { category: "Car Garage (Sinking Fund)", plannedAmount: 200000, tag: "Sinking Fund" },
     { category: "Weekly Groceries", plannedAmount: 720000, tag: "Variable" },
     { category: "Sports & Fitness", plannedAmount: 320000, tag: "Lifestyle" },
-    { category: "Co-working Space", plannedAmount: 360000, tag: "Growth" },
+    { category: "Co-working Space", plannedAmount: 360000, tag: "Variable" },
     { category: "Subscriptions", plannedAmount: 72000, tag: "Fixed" },
     { category: "Dating & Social", plannedAmount: 400000, tag: "Lifestyle" },
     { category: "Travel Fund", plannedAmount: 500000, tag: "Savings" },
     { category: "Emergency Buffer", plannedAmount: 2300000, tag: "Sinking Fund" },
     { category: "Internet", plannedAmount: 250000, tag: "Fixed" },
+    { category: "Medical Sinking Fund", plannedAmount: 100000, tag: "Sinking Fund" }
 ];
 
 export const TAG_COLORS: Record<string, string> = {
