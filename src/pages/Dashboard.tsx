@@ -15,7 +15,7 @@ import { useSync } from "@/hooks/useSync";
 
 export function Dashboard() {
     const [currentMonth, setCurrentMonth] = useState(format(new Date(), "yyyy-MM"));
-    const { user, isSyncing, hasCompletedInitialSync } = useSync();
+    const { user, hasCompletedInitialSync } = useSync();
 
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
@@ -75,54 +75,10 @@ export function Dashboard() {
         return { total, breakdown };
     });
 
-    // --- Auto Population & Sync ---
+    // --- Ensure Month Record Exists ---
     useEffect(() => {
-        const populate = async () => {
-            // If user is logged in, wait for sync to complete before populating
-            // This prevents creating default data that overwrites synced data
-            if (user && isSyncing) {
-                return; // Wait for sync to finish
-            }
-
+        const ensureMonth = async () => {
             try {
-                // Fetch actual existing budgets for this month
-                const existingBudgets = await db.budgets.where("monthId").equals(currentMonth).toArray();
-                
-                // Only auto-populate if there are NO budgets at all for this month
-                // If user is logged in and has synced data, don't create defaults
-                if (user && existingBudgets.length > 0) {
-                    // User is logged in and has data - don't auto-populate
-                    // Just ensure month record exists
-                    const month = await db.months.get(currentMonth);
-                    if (!month) {
-                        await db.months.put({
-                            id: currentMonth,
-                            expectedIncome: 0,
-                            savingsGoal: 0,
-                            updatedAt: Date.now(),
-                            synced: 0
-                        });
-                    }
-                    return;
-                }
-
-                // Only populate missing categories if not logged in OR if truly no data exists
-                const existingCats = new Set(existingBudgets.map(b => b.category));
-                const missing = BUDGET_TEMPLATE.filter(t => !existingCats.has(t.category));
-
-                if (missing.length > 0) {
-                    await db.budgets.bulkAdd(missing.map(t => ({
-                        id: crypto.randomUUID(),
-                        monthId: currentMonth,
-                        category: t.category,
-                        plannedAmount: t.plannedAmount,
-                        tag: t.tag,
-                        updatedAt: Date.now(),
-                        synced: user ? 0 : 1 // Mark as unsynced if logged in, synced if not
-                    })));
-                }
-
-                // Also ensure a month record exists
                 const month = await db.months.get(currentMonth);
                 if (!month) {
                     await db.months.put({
@@ -134,16 +90,13 @@ export function Dashboard() {
                     });
                 }
             } catch (error) {
-                console.error("Auto-population failed:", error);
+                console.error("Failed to ensure month record:", error);
             }
         };
-        
-        // Small delay to let sync complete if user just logged in
-        const timeoutId = setTimeout(populate, user ? 1000 : 0);
-        return () => clearTimeout(timeoutId);
-    }, [currentMonth, user, isSyncing]);
+        ensureMonth();
+    }, [currentMonth, user]);
 
-    const syncTemplate = async () => {
+    const fillFromTemplate = async () => {
         try {
             const existingBudgets = await db.budgets.where("monthId").equals(currentMonth).toArray();
             const existingCats = new Set(existingBudgets.map(b => b.category));
@@ -151,32 +104,34 @@ export function Dashboard() {
             const missing = BUDGET_TEMPLATE.filter(t => !existingCats.has(t.category));
 
             if (missing.length > 0) {
-                await db.budgets.bulkAdd(missing.map(t => ({
-                    id: crypto.randomUUID(),
-                    monthId: currentMonth,
-                    category: t.category,
-                    plannedAmount: t.plannedAmount,
-                    tag: t.tag,
-                    updatedAt: Date.now(),
-                    synced: 0
-                })));
-            }
-
-            // Also update tags for existing ones if they changed in template
-            const updates = [];
-            for (const budget of existingBudgets) {
-                const template = BUDGET_TEMPLATE.find(t => t.category === budget.category);
-                if (template && template.tag !== budget.tag) {
-                    updates.push(db.budgets.update(budget.id, {
-                        tag: template.tag,
-                        updatedAt: Date.now(),
-                        synced: 0
-                    }));
+                // Add missing categories individually to handle duplicates gracefully
+                for (const item of missing) {
+                    // Double-check it doesn't exist (race condition protection)
+                    const exists = await db.budgets
+                        .where("monthId").equals(currentMonth)
+                        .and(b => b.category === item.category)
+                        .first();
+                    
+                    if (!exists) {
+                        try {
+                            await db.budgets.add({
+                                id: crypto.randomUUID(),
+                                monthId: currentMonth,
+                                category: item.category,
+                                plannedAmount: item.plannedAmount,
+                                tag: item.tag,
+                                updatedAt: Date.now(),
+                                synced: user ? 0 : 1
+                            });
+                        } catch (e: any) {
+                            // Ignore if duplicate (might have been added by another process)
+                            console.debug("Skipping duplicate category:", item.category);
+                        }
+                    }
                 }
             }
-            if (updates.length > 0) await Promise.all(updates);
         } catch (error) {
-            console.error("Sync template failed:", error);
+            console.error("Fill from template failed:", error);
         }
     };
 
@@ -187,7 +142,7 @@ export function Dashboard() {
         const budgetTrans = transactions?.filter(t => t.budgetId === budget.id) || [];
         const actual = budgetTrans.reduce((sum, t) => sum + t.amount, 0);
         return { ...budget, actual, transactions: budgetTrans };
-    }) || [];
+    }).sort((a, b) => a.category.localeCompare(b.category)) || [];
 
     const totalPlanned = budgetSummaries.reduce((sum, b) => sum + b.plannedAmount, 0);
     const totalActual = budgetSummaries.reduce((sum, b) => sum + b.actual, 0);
@@ -329,7 +284,7 @@ export function Dashboard() {
     };
 
     // Helpers for formatting
-    const savingsOptions = budgetSummaries?.filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag)) || [];
+    const savingsOptions = budgetSummaries?.filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag)).sort((a, b) => a.category.localeCompare(b.category)) || [];
 
     // Show loading state while waiting for initial sync when logged in
     if (user && !hasCompletedInitialSync) {
@@ -460,8 +415,8 @@ export function Dashboard() {
                     <div>
                         <CardTitle>Budget Categories</CardTitle>
                     </div>
-                    <Button variant="outline" size="sm" onClick={syncTemplate} className="w-full md:w-auto">
-                        <RefreshCw className="h-4 w-4 mr-2" /> Sync Template
+                    <Button variant="outline" size="sm" onClick={fillFromTemplate} className="w-full md:w-auto">
+                        <Plus className="h-4 w-4 mr-2" /> Fill from Template
                     </Button>
                 </CardHeader>
                 <CardContent>
