@@ -22,7 +22,7 @@ export function Sidebar() {
     };
 
     return (
-        <div className="flex h-screen w-64 flex-col border-r bg-card text-card-foreground">
+        <div className="hidden md:flex h-screen w-64 flex-col border-r bg-card text-card-foreground">
             <div className="flex h-14 items-center border-b px-4">
                 <Cpu className="mr-2 h-6 w-6" />
                 <span className="font-bold">FinanceTracker</span>

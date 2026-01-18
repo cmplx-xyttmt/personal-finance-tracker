@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { format, addMonths } from "date-fns";
 import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, RefreshCw, AlertCircle, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { db } from "@/db/db";
 import { MonthSelector } from "@/components/MonthSelector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -303,16 +304,16 @@ export function Dashboard() {
     return (
         <div className="space-y-6 relative">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold">Monthly Planner</h1>
-                <div className="flex items-center space-x-4">
-                    <Button variant="destructive" onClick={handleCloseMonthClick}>Close Month</Button>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <h1 className="text-2xl md:text-3xl font-bold">Monthly Planner</h1>
+                <div className="flex items-center space-x-2 md:space-x-4">
+                    <Button variant="destructive" size="sm" onClick={handleCloseMonthClick}>Close Month</Button>
                     <MonthSelector currentMonth={currentMonth} onMonthChange={setCurrentMonth} />
                 </div>
             </div>
 
             {/* Metrics Grid */}
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium">Expected Income</CardTitle>
@@ -401,30 +402,32 @@ export function Dashboard() {
 
             {/* Main Budget Section */}
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                     <div>
                         <CardTitle>Budget Categories</CardTitle>
                     </div>
-                    <Button variant="outline" size="sm" onClick={syncTemplate}>
+                    <Button variant="outline" size="sm" onClick={syncTemplate} className="w-full md:w-auto">
                         <RefreshCw className="h-4 w-4 mr-2" /> Sync Template
                     </Button>
                 </CardHeader>
                 <CardContent>
                     {/* Add Category */}
-                    <div className="flex items-end space-x-2 mb-6 p-4 border rounded-lg bg-card/50">
+                    <div className="flex flex-col md:flex-row md:items-end gap-3 mb-6 p-4 border rounded-lg bg-card/50">
                         <div className="flex-1 space-y-1">
-                            <p className="text-sm font-medium">New Category</p>
-                            <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Name" />
+                            <p className="text-[10px] font-bold uppercase text-muted-foreground">New Category</p>
+                            <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Name" className="h-12 md:h-10" />
                         </div>
-                        <div className="w-32 space-y-1">
-                            <p className="text-sm font-medium">Tag</p>
-                            <Input value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="Tag" />
+                        <div className="grid grid-cols-2 md:flex gap-3">
+                            <div className="md:w-32 space-y-1">
+                                <p className="text-[10px] font-bold uppercase text-muted-foreground">Tag</p>
+                                <Input value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="Tag" className="h-12 md:h-10" />
+                            </div>
+                            <div className="md:w-32 space-y-1">
+                                <p className="text-[10px] font-bold uppercase text-muted-foreground">Budget</p>
+                                <MoneyInput value={newPlanned} onValueChange={setNewPlanned} placeholder="0" className="h-12 md:h-10" />
+                            </div>
                         </div>
-                        <div className="w-32 space-y-1">
-                            <p className="text-sm font-medium">Budget</p>
-                            <MoneyInput value={newPlanned} onValueChange={setNewPlanned} placeholder="0" />
-                        </div>
-                        <Button onClick={addBudget}><Plus className="h-4 w-4 mr-2" /> Add</Button>
+                        <Button className="w-full md:w-auto h-12 md:h-10" onClick={addBudget}><Plus className="h-4 w-4 mr-2" /> Add Category</Button>
                     </div>
 
                     {/* List of Budgets */}
@@ -516,10 +519,13 @@ export function Dashboard() {
 
 function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [showMobileLog, setShowMobileLog] = useState(false);
     const [newTransDesc, setNewTransDesc] = useState("");
     const [newTransAmount, setNewTransAmount] = useState(0);
 
     const tagColor = TAG_COLORS[budget.tag] || TAG_COLORS["default"];
+    const percent = Math.min(Math.round((budget.actual / budget.plannedAmount) * 100) || 0, 100);
+    const remaining = budget.plannedAmount - budget.actual;
 
     const updateBudget = async (val: number) => {
         await db.budgets.update(budget.id, { plannedAmount: val });
@@ -538,6 +544,7 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
         });
         setNewTransDesc("");
         setNewTransAmount(0);
+        setShowMobileLog(false);
     };
 
     const deleteTransaction = async (id: string) => {
@@ -548,92 +555,193 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
     };
 
     return (
-        <div className={`border rounded-lg overflow-hidden ${isExpanded ? 'ring-1 ring-primary' : ''}`}>
-            <div className="flex items-center p-3 bg-card/40 hover:bg-card/60 transition-colors">
-                <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="mr-2">
-                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
+        <div className="space-y-2">
+            {/* Desktop View (Table-like Row) */}
+            <div className={`hidden md:block border rounded-lg overflow-hidden ${isExpanded ? 'ring-1 ring-primary' : ''}`}>
+                <div className="flex items-center p-3 bg-card/40 hover:bg-card/60 transition-colors">
+                    <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="mr-2">
+                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
 
-                <div className="flex-1 flex items-center space-x-3">
-                    <span className="font-medium text-lg">{budget.category}</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border border-opacity-50 ${tagColor}`}>
-                        {budget.tag}
-                    </span>
-                </div>
-
-                <div className="flex items-center space-x-6 mr-4">
-                    <div className="text-right">
-                        <p className="text-[10px] text-muted-foreground uppercase opacity-70">Planned</p>
-                        <MoneyInput
-                            value={budget.plannedAmount}
-                            onValueChange={updateBudget}
-                            className="h-8 w-28 text-right bg-transparent border-transparent hover:border-input focus:bg-background"
-                        />
+                    <div className="flex-1 flex items-center space-x-3">
+                        <span className="font-medium text-lg">{budget.category}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border border-opacity-50 ${tagColor}`}>
+                            {budget.tag}
+                        </span>
                     </div>
-                    <div className="text-right w-28">
-                        <p className="text-[10px] text-muted-foreground uppercase opacity-70">Actual</p>
-                        <div className="h-8 flex items-center justify-end font-bold">
-                            {formatCurrency(budget.actual)}
+
+                    <div className="flex items-center space-x-6 mr-4">
+                        <div className="text-right">
+                            <p className="text-[10px] text-muted-foreground uppercase opacity-70">Planned</p>
+                            <MoneyInput
+                                value={budget.plannedAmount}
+                                onValueChange={updateBudget}
+                                className="h-8 w-28 text-right bg-transparent border-transparent hover:border-input focus:bg-background"
+                            />
+                        </div>
+                        <div className="text-right w-28">
+                            <p className="text-[10px] text-muted-foreground uppercase opacity-70">Actual</p>
+                            <div className="h-8 flex items-center justify-end font-bold">
+                                {formatCurrency(budget.actual)}
+                            </div>
+                        </div>
+                        <div className="text-right w-24">
+                            <p className="text-[10px] text-muted-foreground uppercase opacity-70">Remaining</p>
+                            <div className={`h-8 flex items-center justify-end font-bold ${remaining < 0 ? 'text-destructive' : 'text-green-600'}`}>
+                                {formatCurrency(remaining)}
+                            </div>
                         </div>
                     </div>
-                    <div className="text-right w-24">
-                        <p className="text-[10px] text-muted-foreground uppercase opacity-70">Remaining</p>
-                        <div className={`h-8 flex items-center justify-end font-bold ${budget.plannedAmount - budget.actual < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                            {formatCurrency(budget.plannedAmount - budget.actual)}
-                        </div>
-                    </div>
+
+                    <Button variant="ghost" size="icon" onClick={onDelete} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
                 </div>
 
-                <Button variant="ghost" size="icon" onClick={onDelete} className="text-muted-foreground hover:text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                </Button>
+                {isExpanded && (
+                    <div className="bg-secondary/20 p-4 border-t space-y-3">
+                        <div className="flex items-center space-x-2 mb-2">
+                            <div className="flex-1">
+                                <Input
+                                    placeholder="Log description"
+                                    value={newTransDesc}
+                                    onChange={e => setNewTransDesc(e.target.value)}
+                                    className="h-8"
+                                />
+                            </div>
+                            <div className="w-32">
+                                <MoneyInput
+                                    value={newTransAmount}
+                                    onValueChange={setNewTransAmount}
+                                    placeholder="Amount"
+                                    className="h-8"
+                                />
+                            </div>
+                            <Button size="sm" onClick={addTransaction}>Log</Button>
+                        </div>
+
+                        <div className="space-y-1 pl-2">
+                            {budget.transactions && budget.transactions.map((t: any) => (
+                                <div key={t.id} className="flex items-center justify-between text-sm p-1 hover:bg-black/5 rounded group relative">
+                                    <div className="flex items-center text-muted-foreground">
+                                        <span className="w-20 text-[10px] opacity-70">{format(new Date(t.date), "MMM d")}</span>
+                                        <span className="font-medium text-foreground">{t.description}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-3">
+                                        <span>{formatCurrency(t.amount)}</span>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                                            onClick={() => deleteTransaction(t.id)}
+                                        >
+                                            <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {isExpanded && (
-                <div className="bg-secondary/20 p-4 border-t space-y-3">
-                    <div className="flex items-center space-x-2 mb-2">
-                        <div className="flex-1">
-                            <Input
-                                placeholder="Log description"
-                                value={newTransDesc}
-                                onChange={e => setNewTransDesc(e.target.value)}
-                                className="h-8"
-                            />
-                        </div>
-                        <div className="w-32">
-                            <MoneyInput
-                                value={newTransAmount}
-                                onValueChange={setNewTransAmount}
-                                placeholder="Amount"
-                                className="h-8"
-                            />
-                        </div>
-                        <Button size="sm" onClick={addTransaction}>Log</Button>
+            {/* Mobile View (Card) */}
+            <div
+                className="md:hidden border rounded-xl p-4 bg-card shadow-sm space-y-3 active:scale-[0.98] transition-transform"
+                onClick={() => setShowMobileLog(true)}
+            >
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h3 className="font-bold text-gray-900 leading-tight">{budget.category}</h3>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border border-opacity-50 mt-1 inline-block ${tagColor}`}>
+                            {budget.tag}
+                        </span>
                     </div>
+                    <div className="text-right">
+                        <p className="text-[10px] text-muted-foreground uppercase font-bold">Remaining</p>
+                        <p className={`text-lg font-black ${remaining < 0 ? 'text-destructive' : 'text-primary'}`}>
+                            {formatCurrency(remaining)}
+                        </p>
+                    </div>
+                </div>
 
-                    <div className="space-y-1 pl-2">
-                        {budget.transactions && budget.transactions.map((t: any) => (
-                            <div key={t.id} className="flex items-center justify-between text-sm p-1 hover:bg-black/5 rounded group relative">
-                                <div className="flex items-center text-muted-foreground">
-                                    <span className="w-20 text-[10px] opacity-70">{format(new Date(t.date), "MMM d")}</span>
-                                    <span className="font-medium text-foreground">{t.description}</span>
-                                </div>
-                                <div className="flex items-center space-x-3">
-                                    <span>{formatCurrency(t.amount)}</span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                                        onClick={() => deleteTransaction(t.id)}
-                                    >
-                                        <Trash2 className="h-3 w-3" />
-                                    </Button>
+                <div className="space-y-1.5">
+                    <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                        <div
+                            className={cn(
+                                "h-full transition-all duration-500",
+                                percent > 90 ? "bg-destructive" : percent > 70 ? "bg-orange-500" : "bg-primary"
+                            )}
+                            style={{ width: `${percent}%` }}
+                        />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground font-medium">
+                        <span>{formatCurrency(budget.actual)} spent</span>
+                        <span>{formatCurrency(budget.plannedAmount)} goal</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Mobile Transaction Modal */}
+            {showMobileLog && (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-end md:hidden">
+                    <div className="bg-background w-full rounded-t-3xl p-6 pb-12 animate-in slide-in-from-bottom duration-300">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold">{budget.category}</h3>
+                                <p className="text-sm text-muted-foreground">Log new transaction</p>
+                            </div>
+                            <Button variant="ghost" className="rounded-full" onClick={(e) => { e.stopPropagation(); setShowMobileLog(false); }}>✕</Button>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase text-muted-foreground">Description</label>
+                                <Input
+                                    placeholder="Food, Groceries, etc."
+                                    className="h-14 text-lg"
+                                    value={newTransDesc}
+                                    onChange={e => setNewTransDesc(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase text-muted-foreground">Amount (UGX)</label>
+                                <MoneyInput
+                                    className="h-14 text-2xl font-black"
+                                    value={newTransAmount}
+                                    onValueChange={setNewTransAmount}
+                                />
+                            </div>
+
+                            <Button className="w-full h-14 text-lg font-bold" onClick={addTransaction}>
+                                Save Transaction
+                            </Button>
+
+                            <div className="pt-4 border-t">
+                                <p className="text-xs font-bold uppercase text-muted-foreground mb-3">Recent Logs</p>
+                                <div className="space-y-3 max-h-40 overflow-y-auto">
+                                    {budget.transactions?.map((t: any) => (
+                                        <div key={t.id} className="flex justify-between items-center">
+                                            <div>
+                                                <p className="font-medium">{t.description}</p>
+                                                <p className="text-[10px] text-muted-foreground">{format(new Date(t.date), "MMM d, h:mm a")}</p>
+                                            </div>
+                                            <div className="flex items-center space-x-3">
+                                                <span className="font-bold">{formatCurrency(t.amount)}</span>
+                                                <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => deleteTransaction(t.id)}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {budget.transactions?.length === 0 && <p className="text-sm italic text-muted-foreground">No transactions yet.</p>}
                                 </div>
                             </div>
-                        ))}
-                        {budget.transactions?.length === 0 && (
-                            <p className="text-xs text-muted-foreground italic pl-2">No items logged yet.</p>
-                        )}
+
+                            <Button variant="outline" className="w-full h-12 border-destructive text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(); setShowMobileLog(false); }}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete Budget Category
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
