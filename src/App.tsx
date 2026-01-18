@@ -5,7 +5,7 @@ import { AuthPage } from "@/pages/Auth";
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/personal-finance-tracker">
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />

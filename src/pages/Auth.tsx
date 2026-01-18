@@ -39,10 +39,10 @@ export function AuthPage({ onLogin }: { onLogin?: () => void }) {
 
     return (
         <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
-            <Card className="w-full max-w-md">
+            <Card className="w-full max-w-md shadow-lg">
                 <CardHeader>
-                    <CardTitle>{mode === 'signin' ? 'Sign In' : 'Create Account'}</CardTitle>
-                    <CardDescription>
+                    <CardTitle className="text-xl md:text-2xl">{mode === 'signin' ? 'Sign In' : 'Create Account'}</CardTitle>
+                    <CardDescription className="text-sm">
                         {mode === 'signin' ? 'Welcome back to your finance tracker' : 'Start tracking your wealth today'}
                     </CardDescription>
                 </CardHeader>
@@ -59,6 +59,7 @@ export function AuthPage({ onLogin }: { onLogin?: () => void }) {
                             placeholder="you@example.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
+                            className="h-11 md:h-10"
                         />
                     </div>
                     <div className="space-y-2">
@@ -68,17 +69,18 @@ export function AuthPage({ onLogin }: { onLogin?: () => void }) {
                             placeholder="••••••••"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            className="h-11 md:h-10"
                         />
                     </div>
                 </CardContent>
-                <CardFooter className="flex flex-col space-y-2">
-                    <Button className="w-full" onClick={handleAuth} disabled={loading}>
+                <CardFooter className="flex flex-col space-y-3 pb-6 md:pb-4">
+                    <Button className="w-full h-11 md:h-10 text-base md:text-sm" onClick={handleAuth} disabled={loading}>
                         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                         {mode === 'signin' ? 'Sign In' : 'Sign Up'}
                     </Button>
                     <Button
                         variant="link"
-                        className="w-full text-sm text-muted-foreground"
+                        className="w-full text-sm text-muted-foreground h-auto py-2"
                         onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
                     >
                         {mode === 'signin' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
