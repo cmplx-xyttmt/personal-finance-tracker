@@ -338,6 +338,18 @@ export function Dashboard() {
                 <div className="text-center space-y-4">
                     <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">Syncing data...</p>
+                    <p className="text-xs text-muted-foreground">This may take a few seconds</p>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            // Force reload to show UI (fallback if sync hangs)
+                            window.location.reload();
+                        }}
+                        className="mt-2"
+                    >
+                        Skip (use local data)
+                    </Button>
                 </div>
             </div>
         );

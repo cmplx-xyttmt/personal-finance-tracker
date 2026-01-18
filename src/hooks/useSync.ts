@@ -24,6 +24,13 @@ export function useSync() {
 
     useEffect(() => {
         let mounted = true;
+        let timeoutId: ReturnType<typeof setTimeout>;
+
+        const completeSync = () => {
+            if (mounted) {
+                setHasCompletedInitialSync(true);
+            }
+        };
 
         // Check session
         supabase.auth.getSession().then(async ({ data }) => {
@@ -33,8 +40,20 @@ export function useSync() {
             setUser(sessionUser);
             if (sessionUser) {
                 // Auto sync on initial load if already logged in
-                await syncNow(true);
-                if (mounted) setHasCompletedInitialSync(true);
+                // Set timeout to prevent infinite loading
+                timeoutId = setTimeout(() => {
+                    console.warn("Initial sync timeout - completing anyway");
+                    completeSync();
+                }, 15000); // 15 second timeout
+
+                try {
+                    await syncNow(true);
+                } catch (e) {
+                    console.error("Initial sync failed:", e);
+                } finally {
+                    clearTimeout(timeoutId);
+                    completeSync();
+                }
             } else {
                 // No user, mark as completed so UI can render
                 setHasCompletedInitialSync(true);
@@ -48,8 +67,19 @@ export function useSync() {
             setUser(sessionUser);
             if (sessionUser) {
                 // Auto sync on login
-                await syncNow(true);
-                if (mounted) setHasCompletedInitialSync(true);
+                timeoutId = setTimeout(() => {
+                    console.warn("Login sync timeout - completing anyway");
+                    completeSync();
+                }, 15000);
+
+                try {
+                    await syncNow(true);
+                } catch (e) {
+                    console.error("Login sync failed:", e);
+                } finally {
+                    clearTimeout(timeoutId);
+                    completeSync();
+                }
             } else {
                 // Logged out, mark as completed
                 setHasCompletedInitialSync(true);
@@ -58,6 +88,7 @@ export function useSync() {
 
         return () => {
             mounted = false;
+            if (timeoutId) clearTimeout(timeoutId);
             subscription.unsubscribe();
         };
     }, []);
