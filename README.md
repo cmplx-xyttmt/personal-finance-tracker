@@ -26,6 +26,17 @@ A privacy-focused, local-first personal finance application built with React and
 - **Installable**: Add to your home screen on iOS/Android or Desktop.
 - **Offline First**: Works completely offline. Data is stored in your browser's IndexedDB.
 
+## 🚀 Roadmap (Coming Soon)
+### Investment & Coupon Tracker
+- **Bond Portfolio**: Track 2-year, 5-year, and 10-year Uganda Government Bonds.
+- **Coupon Calendar**: Automated 6-month payout schedule with 10% WHT (Withholding Tax) calculations.
+- **Payout Notifications**: Visual indicators in your monthly budget when a coupon is expected.
+
+### Financial Independence Simulator
+- **Wealth Projection**: Interactive charts to visualize compound growth over 5, 10, and 15 years.
+- **"What-If" Analysis**: See how a 500k/month increase in bond reinvestment affects your 35-year-old "Dream Retirement" goals.
+- **Goal Milestones**: Track progress toward specific wealth targets (e.g., "100m UGX Net Worth").
+
 ## Tech Stack
 - **Framework**: React + Vite
 - **Language**: TypeScript
