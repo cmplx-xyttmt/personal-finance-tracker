@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { format } from "date-fns";
-import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, RefreshCw } from "lucide-react";
+import { format, addMonths } from "date-fns";
+import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, RefreshCw, AlertCircle, ArrowRight } from "lucide-react";
 import { db } from "@/db/db";
 import { MonthSelector } from "@/components/MonthSelector";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
@@ -17,12 +17,18 @@ export function Dashboard() {
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
 
+    // Close Month State
+    const [showCloseModal, setShowCloseModal] = useState(false);
+
+    const [surplusAction, setSurplusAction] = useState<"rollover" | "savings">("rollover");
+    const [selectedSavingsBudget, setSelectedSavingsBudget] = useState<number | null>(null);
+
     // New Budget Form State
     const [newCategory, setNewCategory] = useState("");
     const [newPlanned, setNewPlanned] = useState(0);
     const [newTag, setNewTag] = useState("Variable");
 
-    // --- Monthly Queries ---
+    // --- Queries ---
     const monthData = useLiveQuery(() => db.months.get(currentMonth), [currentMonth]);
     const budgets = useLiveQuery(() => db.budgets.where("monthId").equals(currentMonth).toArray(), [currentMonth]);
     const transactions = useLiveQuery(
@@ -34,8 +40,8 @@ export function Dashboard() {
         [budgets]
     );
 
-    // --- Wealth/Historical Queries ---
     const wealthData = useLiveQuery(async () => {
+        // ... same as before
         const savingBudgets = await db.budgets
             .filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag))
             .toArray();
@@ -60,7 +66,8 @@ export function Dashboard() {
         return { total, breakdown };
     });
 
-    // --- Auto Population ---
+    // --- Auto Population & Sync ---
+    // ... (Same useEffect and syncTemplate logic) ...
     useEffect(() => {
         const populate = async () => {
             const count = await db.budgets.where("monthId").equals(currentMonth).count();
@@ -76,13 +83,10 @@ export function Dashboard() {
         populate();
     }, [currentMonth]);
 
-    // --- Sync Template ---
-    // --- Sync Template ---
     const syncTemplate = async () => {
         const existingCats = budgets?.map(b => b.category) || [];
         const missing = BUDGET_TEMPLATE.filter(t => !existingCats.includes(t.category));
 
-        // 1. Add missing categories
         if (missing.length > 0) {
             await db.budgets.bulkAdd(missing.map(t => ({
                 monthId: currentMonth,
@@ -92,7 +96,6 @@ export function Dashboard() {
             })));
         }
 
-        // 2. Update mismatches for existing categories (Tags only)
         if (budgets) {
             const updates = [];
             for (const budget of budgets) {
@@ -101,13 +104,11 @@ export function Dashboard() {
                     updates.push(db.budgets.update(budget.id, { tag: template.tag }));
                 }
             }
-            if (updates.length > 0) {
-                await Promise.all(updates);
-            }
+            if (updates.length > 0) await Promise.all(updates);
         }
     };
 
-    // --- Derived State (Monthly) ---
+    // --- Derived State ---
     const expectedIncome = monthData?.expectedIncome || 0;
 
     const budgetSummaries = budgets?.map(budget => {
@@ -118,11 +119,90 @@ export function Dashboard() {
 
     const totalPlanned = budgetSummaries.reduce((sum, b) => sum + b.plannedAmount, 0);
     const totalActual = budgetSummaries.reduce((sum, b) => sum + b.actual, 0);
-    const savings = expectedIncome - totalActual;
-
+    const savings = expectedIncome - totalActual; // This is the Net Surplus/Deficit
     const bankBalance = expectedIncome - totalActual;
 
-    // --- Handlers ---
+    // --- Close Month Logic ---
+    const handleCloseMonthClick = () => {
+        setShowCloseModal(true);
+    };
+
+    const processCloseMonth = async () => {
+        const nextMonth = format(addMonths(new Date(currentMonth + "-01"), 1), "yyyy-MM");
+
+        // 1. Ensure Next Month budgets exist
+        const nextBudgetsCount = await db.budgets.where("monthId").equals(nextMonth).count();
+        if (nextBudgetsCount === 0) {
+            await db.budgets.bulkAdd(BUDGET_TEMPLATE.map(t => ({
+                monthId: nextMonth,
+                category: t.category,
+                plannedAmount: t.plannedAmount,
+                tag: t.tag
+            })));
+        }
+
+        // 2. Handle Surplus logic
+        if (savings > 0) {
+            if (surplusAction === "savings" && selectedSavingsBudget) {
+                // Create transaction in CURRENT month to zero it out
+                await db.transactions.add({
+                    budgetId: selectedSavingsBudget,
+                    description: "Month-End Surplus Transfer",
+                    amount: savings,
+                    date: new Date().toISOString()
+                });
+            } else {
+                // Rollover: Create NEGATIVE transaction in NEXT month
+                // Need a "Rollover Adjustment" budget in next month
+                const rolloverBudgetID = await db.budgets.add({
+                    monthId: nextMonth,
+                    category: "Rollover Adjustment",
+                    plannedAmount: 0,
+                    tag: "Fixed"
+                });
+
+                await db.transactions.add({
+                    budgetId: rolloverBudgetID as number,
+                    description: "Rollover from previous month",
+                    amount: -savings, // Negative amount increases available funds (less spent)
+                    date: new Date().toISOString()
+                });
+            }
+        }
+        // 3. Handle Deficit logic
+        else if (savings < 0) {
+            // Carry Debt: Positive transaction in NEXT month
+            const rolloverBudgetID = await db.budgets.add({
+                monthId: nextMonth,
+                category: "Rollover Adjustment",
+                plannedAmount: 0,
+                tag: "Fixed"
+            });
+
+            await db.transactions.add({
+                budgetId: rolloverBudgetID as number,
+                description: "Debt from previous month",
+                amount: Math.abs(savings), // Positive amount consumes funds
+                date: new Date().toISOString()
+            });
+        }
+
+        // 4. Initialise Next Month Income (Optional: Copy current)
+        const nextMonthData = await db.months.get(nextMonth);
+        if (!nextMonthData) {
+            await db.months.put({
+                id: nextMonth,
+                expectedIncome: expectedIncome, // Carrying over income setting
+                savingsGoal: 0
+            });
+        }
+
+        // 5. Navigate
+        setShowCloseModal(false);
+        setCurrentMonth(nextMonth);
+    };
+
+    // --- Handlers (Existing) ---
     const updateIncome = async (val: number) => {
         await db.months.put({
             id: currentMonth,
@@ -148,15 +228,23 @@ export function Dashboard() {
         await db.budgets.delete(id);
     };
 
+    // Helpers for formatting
+    const savingsOptions = budgetSummaries?.filter(b => ["Savings", "Sinking Fund", "Growth"].includes(b.tag)) || [];
+
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 relative">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">Monthly Planner</h1>
-                <MonthSelector currentMonth={currentMonth} onMonthChange={setCurrentMonth} />
+                <div className="flex items-center space-x-4">
+                    <Button variant="destructive" onClick={handleCloseMonthClick}>Close Month</Button>
+                    <MonthSelector currentMonth={currentMonth} onMonthChange={setCurrentMonth} />
+                </div>
             </div>
 
-            {/* Top Metrics Grid */}
+            {/* Metrics Grid */}
             <div className="grid gap-4 md:grid-cols-4">
+                {/* ... Identical to previous ... */}
                 <Card>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium">Expected Income</CardTitle>
@@ -210,8 +298,9 @@ export function Dashboard() {
                 </Card>
             </div>
 
-            {/* Wealth Distribution (Collapsible) */}
+            {/* Wealth Distribution */}
             <Card className="bg-emerald-50/50 border-emerald-100 dark:bg-emerald-950/10 dark:border-emerald-900">
+                {/* ... Identical ... */}
                 <CardHeader className="cursor-pointer select-none py-4" onClick={() => setIsWealthExpanded(!isWealthExpanded)}>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -245,6 +334,7 @@ export function Dashboard() {
 
             {/* Main Budget Section */}
             <Card>
+                {/* ... Identical ... */}
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                         <CardTitle>Budget Categories</CardTitle>
@@ -275,16 +365,90 @@ export function Dashboard() {
                     <div className="space-y-4">
                         {budgetSummaries.map(budget => (
                             <BudgetGroup key={budget.id} budget={budget} onDelete={() => deleteBudget(budget.id)} />
-
                         ))}
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Close Month Modal Overlay */}
+            {showCloseModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <Card className="w-full max-w-md bg-background shadow-lg">
+                        <CardHeader>
+                            <CardTitle>Close Month: {currentMonth}</CardTitle>
+                            <CardDescription>
+                                {savings >= 0 ? "You have a surplus!" : "You have a deficit."}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="text-center py-4">
+                                <p className="text-sm text-muted-foreground">Net Result</p>
+                                <div className={`text-4xl font-bold ${savings >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                    {formatCurrency(savings)}
+                                </div>
+                            </div>
+
+                            {/* Surplus Options */}
+                            {savings > 0 && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center space-x-2">
+                                        <input
+                                            type="radio"
+                                            id="rollover"
+                                            name="action"
+                                            checked={surplusAction === "rollover"}
+                                            onChange={() => setSurplusAction("rollover")}
+                                        />
+                                        <label htmlFor="rollover" className="text-sm font-medium">Carry Over to Next Month</label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <input
+                                            type="radio"
+                                            id="savings"
+                                            name="action"
+                                            checked={surplusAction === "savings"}
+                                            onChange={() => setSurplusAction("savings")}
+                                        />
+                                        <label htmlFor="savings" className="text-sm font-medium">Add to Savings / Fund</label>
+                                    </div>
+
+                                    {surplusAction === "savings" && (
+                                        <select
+                                            className="w-full p-2 border rounded mt-2 text-sm"
+                                            onChange={(e) => setSelectedSavingsBudget(Number(e.target.value))}
+                                            defaultValue=""
+                                        >
+                                            <option value="" disabled>Select Fund...</option>
+                                            {savingsOptions.map(b => (
+                                                <option key={b.id} value={b.id}>{b.category} ({formatCurrency(b.actual)})</option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Deficit Message */}
+                            {savings < 0 && (
+                                <div className="bg-red-50 text-red-800 p-3 rounded text-sm flex items-start space-x-2">
+                                    <AlertCircle className="h-5 w-5 shrink-0" />
+                                    <p>This deficit will be deducted significantly from next month's available budget.</p>
+                                </div>
+                            )}
+                        </CardContent>
+                        <CardFooter className="flex justify-between">
+                            <Button variant="ghost" onClick={() => setShowCloseModal(false)}>Cancel</Button>
+                            <Button onClick={processCloseMonth}>
+                                Confirm & Next Month <ArrowRight className="h-4 w-4 ml-2" />
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 }
 
-// ... BudgetGroup component code ...
+// ... BudgetGroup component stays the same ...
 
 
 function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }) {
@@ -316,6 +480,7 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
 
     return (
         <div className={`border rounded-lg overflow-hidden ${isExpanded ? 'ring-1 ring-primary' : ''}`}>
+            {/* Same JSX as before */}
             <div className="flex items-center p-3 bg-card/40 hover:bg-card/60 transition-colors">
                 <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="mr-2">
                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -407,3 +572,4 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
         </div>
     );
 }
+
