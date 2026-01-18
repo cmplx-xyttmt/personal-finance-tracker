@@ -15,7 +15,7 @@ import { useSync } from "@/hooks/useSync";
 
 export function Dashboard() {
     const [currentMonth, setCurrentMonth] = useState(format(new Date(), "yyyy-MM"));
-    const { user, hasCompletedInitialSync } = useSync();
+    const { user, hasCompletedInitialSync, syncImmediate } = useSync();
 
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
@@ -251,6 +251,10 @@ export function Dashboard() {
             updatedAt: Date.now(),
             synced: 0
         });
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     const addBudget = async () => {
@@ -266,6 +270,10 @@ export function Dashboard() {
         });
         setNewCategory("");
         setNewPlanned(0);
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     const deleteBudget = async (id: string) => {
@@ -281,6 +289,10 @@ export function Dashboard() {
             await db.deleted_records.add({ itemId: id, table: 'budgets', updatedAt: Date.now(), synced: 0 });
             await db.budgets.delete(id);
         });
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     // Helpers for formatting
@@ -531,13 +543,18 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
     const [showMobileLog, setShowMobileLog] = useState(false);
     const [newTransDesc, setNewTransDesc] = useState("");
     const [newTransAmount, setNewTransAmount] = useState(0);
+    const { user, syncImmediate } = useSync();
 
     const tagColor = TAG_COLORS[budget.tag] || TAG_COLORS["default"];
     const percent = Math.min(Math.round((budget.actual / budget.plannedAmount) * 100) || 0, 100);
     const remaining = budget.plannedAmount - budget.actual;
 
     const updateBudget = async (val: number) => {
-        await db.budgets.update(budget.id, { plannedAmount: val });
+        await db.budgets.update(budget.id, { plannedAmount: val, updatedAt: Date.now(), synced: 0 });
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     const addTransaction = async () => {
@@ -554,6 +571,10 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
         setNewTransDesc("");
         setNewTransAmount(0);
         setShowMobileLog(false);
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     const deleteTransaction = async (id: string) => {
@@ -561,6 +582,10 @@ function BudgetGroup({ budget, onDelete }: { budget: any, onDelete: () => void }
             await db.deleted_records.add({ itemId: id, table: 'transactions', updatedAt: Date.now(), synced: 0 });
             await db.transactions.delete(id);
         });
+        // Immediate sync if online and logged in
+        if (user && navigator.onLine) {
+            syncImmediate();
+        }
     };
 
     return (

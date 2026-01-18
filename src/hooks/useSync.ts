@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { syncService } from '@/services/syncService';
+import { realtimeService } from '@/services/realtimeService';
+import { clearDatabase } from '@/db/db';
 
 export function useSync() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -48,6 +50,8 @@ export function useSync() {
 
                 try {
                     await syncNow(true);
+                    // Set up real-time subscriptions for push updates
+                    await realtimeService.subscribe();
                 } catch (e) {
                     console.error("Initial sync failed:", e);
                 } finally {
@@ -64,8 +68,23 @@ export function useSync() {
             if (!mounted) return;
             
             const sessionUser = session?.user ?? null;
+            const previousUser = user;
+            
             setUser(sessionUser);
+            
             if (sessionUser) {
+                // User logged in - clear database to prevent conflicts with offline data
+                // Then pull fresh data from server
+                if (!previousUser) {
+                    // Only clear if this is a new login (not initial session check)
+                    try {
+                        await clearDatabase();
+                        console.log("Database cleared on login");
+                    } catch (e) {
+                        console.error("Failed to clear database on login:", e);
+                    }
+                }
+                
                 // Auto sync on login
                 timeoutId = setTimeout(() => {
                     console.warn("Login sync timeout - completing anyway");
@@ -74,13 +93,25 @@ export function useSync() {
 
                 try {
                     await syncNow(true);
+                    // Set up real-time subscriptions for push updates
+                    await realtimeService.subscribe();
                 } catch (e) {
                     console.error("Login sync failed:", e);
                 } finally {
                     clearTimeout(timeoutId);
                     completeSync();
                 }
-            } else {
+            } else if (previousUser) {
+                // User logged out - clear database and unsubscribe from realtime
+                try {
+                    realtimeService.unsubscribe();
+                    await clearDatabase();
+                    // Clear sync timestamp (using the same key as syncService)
+                    localStorage.removeItem('last_sync_timestamp');
+                    console.log("Database cleared on logout");
+                } catch (e) {
+                    console.error("Failed to clear database on logout:", e);
+                }
                 // Logged out, mark as completed
                 setHasCompletedInitialSync(true);
             }
@@ -94,9 +125,10 @@ export function useSync() {
     }, []);
 
     useEffect(() => {
-        // Auto sync interval if logged in
+        // Periodic sync as fallback (reduced frequency since we have realtime + immediate sync)
+        // Keep this as a safety net in case realtime misses updates
         if (!user) return;
-        const interval = setInterval(() => syncNow(), 5 * 60 * 1000); // 5 min
+        const interval = setInterval(() => syncNow(), 15 * 60 * 1000); // 15 min (reduced from 5 min)
         return () => clearInterval(interval);
     }, [user]);
 
@@ -109,5 +141,12 @@ export function useSync() {
         return () => window.removeEventListener('online', handleOnline);
     }, [user]);
 
-    return { isSyncing, lastSyncTime, user, syncNow, hasCompletedInitialSync };
+    return { 
+        isSyncing, 
+        lastSyncTime, 
+        user, 
+        syncNow, 
+        syncImmediate: () => syncService.syncImmediate(), // Expose immediate sync
+        hasCompletedInitialSync 
+    };
 }

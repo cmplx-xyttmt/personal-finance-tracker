@@ -3,6 +3,10 @@ import { supabase } from '@/lib/supabase';
 
 const SYNC_KEY = 'last_sync_timestamp';
 
+// Debounce helper for immediate sync
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const SYNC_DEBOUNCE_MS = 500; // Wait 500ms after last change before syncing
+
 // Mappers: Dexie (Camel) <-> Supabase (Snake)
 
 const mapMonthToSupabase = (m: Month) => ({
@@ -87,151 +91,161 @@ export const syncService = {
         // --- 1. Push Deletions ---
         const deleted = await db.deleted_records.where('synced').equals(0).toArray();
         if (deleted.length > 0) {
-            for (const record of deleted) {
-                // Determine Supabase table
-                const table = record.table; // matches? months, budgets, transactions, bonds
+            // Process deletions in parallel
+            await Promise.all(deleted.map(async (record) => {
+                const table = record.table;
                 const { error } = await supabase.from(table).delete().eq('id', record.itemId);
-
                 if (!error) {
                     await db.deleted_records.update(record.id!, { synced: 1 });
                 } else {
                     console.error(`Failed to delete ${record.table} ${record.itemId}`, error);
                 }
-            }
+            }));
         }
 
-        // --- 2. Push Updates/Inserts and fetch server timestamps ---
+        // --- 2. Push Updates/Inserts (optimized - only fetch back if needed) ---
+        const now = Date.now();
+
+        // Get all unsynced records in parallel
+        const [months, budgets, transactions, bonds] = await Promise.all([
+            db.months.where('synced').equals(0).toArray(),
+            db.budgets.where('synced').equals(0).toArray(),
+            db.transactions.where('synced').equals(0).toArray(),
+            db.bonds.where('synced').equals(0).toArray()
+        ]);
+
+        // Push all tables in parallel
+        const pushPromises = [];
 
         // Months
-        const months = await db.months.where('synced').equals(0).toArray();
         if (months.length > 0) {
-            const payload = months.map(mapMonthToSupabase);
-            const { error } = await supabase.from('months').upsert(payload);
-            if (!error) {
-                // Fetch updated records from server to get server timestamps
-                const ids = months.map(m => m.id);
-                const { data: updated } = await supabase.from('months').select('*').in('id', ids);
-                if (updated) {
-                    const updates = updated.map(mapMonthFromSupabase);
-                    await db.months.bulkPut(updates);
-                } else {
-                    // Fallback: just mark as synced
-                    await db.months.bulkUpdate(months.map(m => ({ key: m.id, changes: { synced: 1 } })));
+            pushPromises.push((async () => {
+                const payload = months.map(mapMonthToSupabase);
+                const { error } = await supabase.from('months').upsert(payload);
+                if (!error) {
+                    // Use current timestamp instead of fetching back (faster)
+                    await db.months.bulkUpdate(months.map(m => ({ 
+                        key: m.id, 
+                        changes: { synced: 1, updatedAt: now } 
+                    })));
                 }
-            }
+            })());
         }
 
         // Budgets
-        const budgets = await db.budgets.where('synced').equals(0).toArray();
         if (budgets.length > 0) {
-            const payload = budgets.map(mapBudgetToSupabase);
-            const { error } = await supabase.from('budgets').upsert(payload);
-            if (!error) {
-                const ids = budgets.map(b => b.id);
-                const { data: updated } = await supabase.from('budgets').select('*').in('id', ids);
-                if (updated) {
-                    const updates = updated.map(mapBudgetFromSupabase);
-                    await db.budgets.bulkPut(updates);
-                } else {
-                    await db.budgets.bulkUpdate(budgets.map(b => ({ key: b.id, changes: { synced: 1 } })));
+            pushPromises.push((async () => {
+                const payload = budgets.map(mapBudgetToSupabase);
+                const { error } = await supabase.from('budgets').upsert(payload);
+                if (!error) {
+                    await db.budgets.bulkUpdate(budgets.map(b => ({ 
+                        key: b.id, 
+                        changes: { synced: 1, updatedAt: now } 
+                    })));
                 }
-            }
+            })());
         }
 
         // Transactions
-        const transactions = await db.transactions.where('synced').equals(0).toArray();
         if (transactions.length > 0) {
-            const payload = transactions.map(mapTransactionToSupabase);
-            const { error } = await supabase.from('transactions').upsert(payload);
-            if (!error) {
-                const ids = transactions.map(t => t.id);
-                const { data: updated } = await supabase.from('transactions').select('*').in('id', ids);
-                if (updated) {
-                    const updates = updated.map(mapTransactionFromSupabase);
-                    await db.transactions.bulkPut(updates);
-                } else {
-                    await db.transactions.bulkUpdate(transactions.map(t => ({ key: t.id, changes: { synced: 1 } })));
+            pushPromises.push((async () => {
+                const payload = transactions.map(mapTransactionToSupabase);
+                const { error } = await supabase.from('transactions').upsert(payload);
+                if (!error) {
+                    await db.transactions.bulkUpdate(transactions.map(t => ({ 
+                        key: t.id, 
+                        changes: { synced: 1, updatedAt: now } 
+                    })));
                 }
-            }
+            })());
         }
 
         // Bonds
-        const bonds = await db.bonds.where('synced').equals(0).toArray();
         if (bonds.length > 0) {
-            const payload = bonds.map(mapBondToSupabase);
-            const { error } = await supabase.from('bonds').upsert(payload);
-            if (!error) {
-                const ids = bonds.map(b => b.id);
-                const { data: updated } = await supabase.from('bonds').select('*').in('id', ids);
-                if (updated) {
-                    const updates = updated.map(mapBondFromSupabase);
-                    await db.bonds.bulkPut(updates);
-                } else {
-                    await db.bonds.bulkUpdate(bonds.map(b => ({ key: b.id, changes: { synced: 1 } })));
+            pushPromises.push((async () => {
+                const payload = bonds.map(mapBondToSupabase);
+                const { error } = await supabase.from('bonds').upsert(payload);
+                if (!error) {
+                    await db.bonds.bulkUpdate(bonds.map(b => ({ 
+                        key: b.id, 
+                        changes: { synced: 1, updatedAt: now } 
+                    })));
                 }
-            }
+            })());
         }
+
+        await Promise.all(pushPromises);
     },
 
     async pullChanges() {
         const lastSyncISO = localStorage.getItem(SYNC_KEY) || new Date(0).toISOString();
         const nowISO = new Date().toISOString();
 
-        // Get IDs of records with unsynced local changes to avoid overwriting them
-        const unsyncedMonths = await db.months.where('synced').equals(0).toArray();
-        const unsyncedBudgets = await db.budgets.where('synced').equals(0).toArray();
-        const unsyncedTransactions = await db.transactions.where('synced').equals(0).toArray();
-        const unsyncedBonds = await db.bonds.where('synced').equals(0).toArray();
+        // Get IDs of records with unsynced local changes to avoid overwriting them (in parallel)
+        const [unsyncedMonths, unsyncedBudgets, unsyncedTransactions, unsyncedBonds] = await Promise.all([
+            db.months.where('synced').equals(0).toArray(),
+            db.budgets.where('synced').equals(0).toArray(),
+            db.transactions.where('synced').equals(0).toArray(),
+            db.bonds.where('synced').equals(0).toArray()
+        ]);
 
         const unsyncedMonthIds = new Set(unsyncedMonths.map(m => m.id));
         const unsyncedBudgetIds = new Set(unsyncedBudgets.map(b => b.id));
         const unsyncedTransactionIds = new Set(unsyncedTransactions.map(t => t.id));
         const unsyncedBondIds = new Set(unsyncedBonds.map(b => b.id));
 
-        // 1. Months - Only pull records that don't have local unsynced changes
-        const { data: months, error: errM } = await supabase.from('months').select('*').gt('updated_at', lastSyncISO);
-        if (months && !errM) {
-            const toUpdate = months
+        // Pull all tables in parallel for better performance
+        const [monthsResult, budgetsResult, transResult, bondsResult] = await Promise.all([
+            supabase.from('months').select('*').gt('updated_at', lastSyncISO),
+            supabase.from('budgets').select('*').gt('updated_at', lastSyncISO),
+            supabase.from('transactions').select('*').gt('updated_at', lastSyncISO),
+            supabase.from('bonds').select('*').gt('updated_at', lastSyncISO)
+        ]);
+
+        // Process results in parallel
+        const updatePromises = [];
+
+        // 1. Months
+        if (monthsResult.data && !monthsResult.error) {
+            const toUpdate = monthsResult.data
                 .filter(m => !unsyncedMonthIds.has(m.id))
                 .map(mapMonthFromSupabase);
             if (toUpdate.length > 0) {
-                await db.months.bulkPut(toUpdate);
+                updatePromises.push(db.months.bulkPut(toUpdate));
             }
         }
 
-        // 2. Budgets - Only pull records that don't have local unsynced changes
-        const { data: budgets, error: errB } = await supabase.from('budgets').select('*').gt('updated_at', lastSyncISO);
-        if (budgets && !errB) {
-            const toUpdate = budgets
+        // 2. Budgets
+        if (budgetsResult.data && !budgetsResult.error) {
+            const toUpdate = budgetsResult.data
                 .filter(b => !unsyncedBudgetIds.has(b.id))
                 .map(mapBudgetFromSupabase);
             if (toUpdate.length > 0) {
-                await db.budgets.bulkPut(toUpdate);
+                updatePromises.push(db.budgets.bulkPut(toUpdate));
             }
         }
 
-        // 3. Transactions - Only pull records that don't have local unsynced changes
-        const { data: trans, error: errT } = await supabase.from('transactions').select('*').gt('updated_at', lastSyncISO);
-        if (trans && !errT) {
-            const toUpdate = trans
+        // 3. Transactions
+        if (transResult.data && !transResult.error) {
+            const toUpdate = transResult.data
                 .filter(t => !unsyncedTransactionIds.has(t.id))
                 .map(mapTransactionFromSupabase);
             if (toUpdate.length > 0) {
-                await db.transactions.bulkPut(toUpdate);
+                updatePromises.push(db.transactions.bulkPut(toUpdate));
             }
         }
 
-        // 4. Bonds - Only pull records that don't have local unsynced changes
-        const { data: bonds, error: errBo } = await supabase.from('bonds').select('*').gt('updated_at', lastSyncISO);
-        if (bonds && !errBo) {
-            const toUpdate = bonds
+        // 4. Bonds
+        if (bondsResult.data && !bondsResult.error) {
+            const toUpdate = bondsResult.data
                 .filter(b => !unsyncedBondIds.has(b.id))
                 .map(mapBondFromSupabase);
             if (toUpdate.length > 0) {
-                await db.bonds.bulkPut(toUpdate);
+                updatePromises.push(db.bonds.bulkPut(toUpdate));
             }
         }
 
+        await Promise.all(updatePromises);
         localStorage.setItem(SYNC_KEY, nowISO);
     },
 
@@ -250,6 +264,27 @@ export const syncService = {
         } catch (e) {
             console.error("Sync failed", e);
         }
+    },
+
+    /**
+     * Immediate sync with debouncing - syncs changes after a short delay
+     * Use this when user makes changes and is online
+     */
+    async syncImmediate() {
+        if (!supabase) return;
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) return;
+
+        // Clear existing debounce timer
+        if (syncDebounceTimer) {
+            clearTimeout(syncDebounceTimer);
+        }
+
+        // Set new debounce timer
+        syncDebounceTimer = setTimeout(async () => {
+            syncDebounceTimer = null;
+            await this.sync();
+        }, SYNC_DEBOUNCE_MS);
     },
 
     /**

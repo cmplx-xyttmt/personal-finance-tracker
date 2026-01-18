@@ -149,4 +149,18 @@ db.version(5).stores({
     // Actually, I can just use UUID for the log record too.
 });
 
+/**
+ * Clear all data from the database
+ * Useful when logging out or switching users to prevent data conflicts
+ */
+export async function clearDatabase() {
+    await Promise.all([
+        db.months.clear(),
+        db.budgets.clear(),
+        db.transactions.clear(),
+        db.bonds.clear(),
+        db.deleted_records.clear()
+    ]);
+}
+
 export { db };
