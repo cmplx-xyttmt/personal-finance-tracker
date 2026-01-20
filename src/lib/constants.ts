@@ -11,7 +11,8 @@ export const BUDGET_TEMPLATE = [
     { category: "Travel Fund", plannedAmount: 500000, tag: "Savings" },
     { category: "Emergency Buffer", plannedAmount: 2300000, tag: "Sinking Fund" },
     { category: "Internet", plannedAmount: 250000, tag: "Fixed" },
-    { category: "Medical Sinking Fund", plannedAmount: 100000, tag: "Sinking Fund" }
+    { category: "Medical Sinking Fund", plannedAmount: 100000, tag: "Sinking Fund" },
+    { category: "Personal Care & Apparel", plannedAmount: 100000, tag: "Lifestyle" },
 ];
 
 export const TAG_COLORS: Record<string, string> = {
