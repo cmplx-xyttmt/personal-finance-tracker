@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { format, addMonths } from "date-fns";
-import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, AlertCircle, ArrowRight } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, TrendingUp, AlertCircle, ArrowRight, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { db } from "@/db/db";
 import { MonthSelector } from "@/components/MonthSelector";
+import { TransferModal } from "@/components/TransferModal";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ export function Dashboard() {
 
     // Layout State
     const [isWealthExpanded, setIsWealthExpanded] = useState(false);
+    const [showTransferModal, setShowTransferModal] = useState(false);
 
     // Close Month State
     const [showCloseModal, setShowCloseModal] = useState(false);
@@ -241,6 +243,51 @@ export function Dashboard() {
         });
     };
 
+    const handleTransfer = async (sourceCategory: string, destBudgetId: string, amount: number) => {
+        await db.transaction("rw", [db.budgets, db.transactions], async () => {
+            // 1. Find or create source budget in CURRENT month
+            let sourceBudget = await db.budgets
+                .where({ monthId: currentMonth, category: sourceCategory })
+                .first();
+
+            if (!sourceBudget) {
+                // Find any historical budget for this category to get the tag
+                const historical = await db.budgets.where("category").equals(sourceCategory).first();
+                const id = crypto.randomUUID();
+                await db.budgets.add({
+                    id,
+                    monthId: currentMonth,
+                    category: sourceCategory,
+                    plannedAmount: 0,
+                    tag: historical?.tag || "Savings",
+                    updatedAt: Date.now()
+                });
+                sourceBudget = await db.budgets.get(id);
+            }
+
+            if (!sourceBudget) throw new Error("Failed to find or create source budget");
+
+            // 2. Add negative transaction to source (withdraw from wealth)
+            await db.transactions.add({
+                id: crypto.randomUUID(),
+                budgetId: sourceBudget.id,
+                description: `Transfer to ${budgetSummaries.find(b => b.id === destBudgetId)?.category}`,
+                amount: -amount,
+                date: new Date().toISOString(),
+                updatedAt: Date.now()
+            });
+
+            // 3. Increase plannedAmount of destination budget
+            const destBudget = await db.budgets.get(destBudgetId);
+            if (!destBudget) throw new Error("Destination budget not found");
+
+            await db.budgets.update(destBudgetId, {
+                plannedAmount: destBudget.plannedAmount + amount,
+                updatedAt: Date.now()
+            });
+        });
+    };
+
     const addBudget = async () => {
         if (!newCategory) return;
         await db.budgets.add({
@@ -351,7 +398,20 @@ export function Dashboard() {
                                 </span>
                             </div>
                         </div>
-                        {isWealthExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        <div className="flex items-center space-x-2">
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-7 px-2 text-xs border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowTransferModal(true);
+                                }}
+                            >
+                                <ArrowLeftRight className="h-3 w-3 mr-1" /> Move Money
+                            </Button>
+                            {isWealthExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
                     </div>
                 </CardHeader>
                 {isWealthExpanded && (
@@ -409,6 +469,14 @@ export function Dashboard() {
                     </div>
                 </CardContent>
             </Card>
+
+            <TransferModal 
+                isOpen={showTransferModal}
+                onClose={() => setShowTransferModal(false)}
+                onTransfer={handleTransfer}
+                wealthBreakdown={wealthData?.breakdown || []}
+                currentBudgets={budgetSummaries}
+            />
 
             {/* Close Month Modal Overlay */}
             {showCloseModal && (
